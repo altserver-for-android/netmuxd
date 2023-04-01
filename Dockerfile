@@ -49,7 +49,7 @@ COPY . netmuxd
 RUN mkdir -p /output/ \
     && cd netmuxd \
     && . "$HOME/.cargo/env" \
-    && cargo build --release --features "zeroconf" \
+    && cargo build --release --features "zeroconf" --bin netmuxd \
     && cp target/release/netmuxd /output/netmuxd-zeroconf \
     && cargo build --release \
     && cp target/release/netmuxd /output/netmuxd-mdns

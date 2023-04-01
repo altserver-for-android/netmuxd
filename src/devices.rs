@@ -2,7 +2,7 @@
 
 use std::{collections::HashMap, io::Read, net::IpAddr, path::PathBuf, sync::Arc};
 
-use log::{error, info, warn};
+use log::{error, info, trace, warn};
 use plist_plus::{error::PlistError, Plist};
 use tokio::sync::{mpsc::UnboundedSender, Mutex};
 
@@ -50,6 +50,17 @@ impl SharedDevices {
             }
             .to_string()
         };
+
+        // Make sure the directory exists
+        if std::fs::read_dir(&plist_storage).is_err() {
+            // Create the directory
+            std::fs::create_dir(&plist_storage).expect("Unable to create plist storage folder");
+            info!("Created plist storage!");
+            error!("You are missing a system configuration file. Run usbmuxd to create one.")
+        } else {
+            trace!("Plist storage exists");
+        }
+
         Self {
             devices: HashMap::new(),
             last_index: 0,
@@ -68,7 +79,7 @@ impl SharedDevices {
         data: Arc<Mutex<Self>>,
     ) {
         if self.devices.contains_key(&udid) {
-            warn!("Device has already been added, skipping");
+            trace!("Device has already been added, skipping");
             return;
         }
         self.last_index += 1;
@@ -92,6 +103,7 @@ impl SharedDevices {
         self.devices.insert(udid, dev);
     }
 
+    #[cfg(feature = "usb")]
     pub fn add_usb_device(&mut self, udid: String, _data: Arc<Mutex<Self>>) {
         self.last_index += 1;
         self.last_interface_index += 1;
@@ -164,12 +176,14 @@ impl SharedDevices {
 
     pub fn update_cache(&mut self) {
         // Iterate through all files in the plist storage, loading them into memory
+        trace!("Updating plist cache");
         let path = PathBuf::from(self.plist_storage.clone());
         for entry in std::fs::read_dir(path).expect("Plist storage is unreadable!!") {
             let entry = entry.unwrap();
             let path = entry.path();
+            trace!("Attempting to read {:?}", path);
             if path.is_file() {
-                let mut file = std::fs::File::open(path.clone()).unwrap();
+                let mut file = std::fs::File::open(&path).unwrap();
                 let mut contents = String::new();
                 let plist = match file.read_to_string(&mut contents) {
                     Ok(_) => Plist::from_xml(contents).unwrap(),
@@ -180,6 +194,7 @@ impl SharedDevices {
                         match Plist::from_memory(buf) {
                             Ok(plist) => plist,
                             Err(_) => {
+                                trace!("Could not read plist to memory");
                                 continue;
                             }
                         }
@@ -188,24 +203,57 @@ impl SharedDevices {
                 let mac_addr = match plist.clone().dict_get_item("WiFiMACAddress") {
                     Ok(item) => match item.get_string_val() {
                         Ok(val) => val,
-                        Err(_) => continue,
+                        Err(_) => {
+                            warn!("Could not get string value of WiFiMACAddress");
+                            continue;
+                        }
                     },
-                    Err(_) => continue,
+                    Err(_) => {
+                        warn!("Plist did not contain WiFiMACAddress");
+                        continue;
+                    }
                 };
                 let udid = match plist.clone().dict_get_item("UDID") {
                     Ok(item) => match item.get_string_val() {
-                        Ok(val) => val,
-                        Err(_) => continue,
+                        Ok(val) => Some(val),
+                        Err(_) => {
+                            warn!("Could not get string value of UDID");
+                            None
+                        }
                     },
-                    Err(_) => continue,
+                    Err(_) => {
+                        warn!("Plist did not contain UDID");
+                        None
+                    }
                 };
+
+                let udid = if let Some(udid) = udid {
+                    udid
+                } else {
+                    // Use the file name as the UDID
+                    // This won't be reached because the SystemConfiguration doesn't have a WiFiMACAddress
+                    // This is just used as a last resort, but might not be correct so we'll pass a warning
+                    warn!("Using the file name as the UDID");
+                    match path.file_name() {
+                        Some(f) => {
+                            f.to_str().unwrap().split('.').collect::<Vec<&str>>()[0].to_string()
+                        }
+                        None => {
+                            trace!("File had no name");
+                            continue;
+                        }
+                    }
+                };
+
                 self.known_mac_addresses.insert(
                     mac_addr,
                     path.file_stem().unwrap().to_string_lossy().to_string(),
                 );
                 if self.paired_udids.contains(&udid) {
+                    trace!("Cache already contained this UDID");
                     continue;
                 }
+                trace!("Adding {} to plist cache", udid);
                 self.paired_udids.push(udid);
             }
         }
@@ -216,6 +264,8 @@ impl SharedDevices {
         if let Some(udid) = self.known_mac_addresses.get(&mac) {
             info!("Found UDID: {:?}", udid);
             return Ok(udid.to_string());
+        } else {
+            trace!("No UDID found for {:?} in cache, re-caching...", mac);
         }
         self.update_cache();
 
@@ -223,9 +273,11 @@ impl SharedDevices {
             info!("Found UDID: {:?}", udid);
             return Ok(udid.to_string());
         }
+        trace!("No UDID found after a re-cache");
         Err(())
     }
 
+    #[cfg(feature = "usb")]
     pub fn check_udid(&mut self, udid: String) -> bool {
         if self.paired_udids.contains(&udid) {
             return true;
