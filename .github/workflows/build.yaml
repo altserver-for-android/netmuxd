@@ -5,24 +5,22 @@ on:
   workflow_dispatch:                                  # Allow to manually trigger workflow.
 
 jobs:
-  buildx:
+  build:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v2
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v1
-      - name: Set up Docker Buildx
-        id: buildx
-        uses: docker/setup-buildx-action@v1
-  build_and_test:
-    name: Rust project
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v2
       - uses: actions-rs/toolchain@v1
         with:
           toolchain: stable
+      # rusty_libimobiledevice
+      ## libusbmuxd
+      - name: Install rusty_libimboiledevice dependencies
+        run: sudo apt-get install build-essential pkg-config checkinstall git autoconf automake libtool-bin libplist-dev libimobiledevice-glue-dev usbmuxd
+      - name: Clone libusbmuxd
+        run: git clone https://github.com/libimobiledevice/libusbmuxd.git && cd libusbmuxd && ./autogen.sh && make && sudo make install
       - uses: actions-rs/cargo@v1
         with:
           command: build
