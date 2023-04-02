@@ -16,8 +16,8 @@ jobs:
         with:
           toolchain: stable
       # rusty_libimobiledevice
-      ## libusbmuxd
 
+      ## libusbmuxd
       - name: prepare environment
         run: |
             echo "target_triplet=`gcc -dumpmachine`" >> $GITHUB_ENV
@@ -55,6 +55,92 @@ jobs:
       - name: make install
         run: sudo make install
 
+#libimobiledevice
+      - name: install dependencies
+        run: |
+            sudo apt-get update
+            sudo apt-get install cython3
+      - name: prepare environment
+        run: |
+            echo "target_triplet=`gcc -dumpmachine`" >> $GITHUB_ENV
+      - name: fetch libplist
+        uses: dawidd6/action-download-artifact@v2
+        with:
+          github_token: ${{secrets.GITHUB_TOKEN}}
+          workflow: build.yml
+          name: libplist-latest_${{env.target_triplet}}
+          repo: libimobiledevice/libplist
+      - name: fetch libusbmuxd
+        uses: dawidd6/action-download-artifact@v2
+        with:
+          github_token: ${{secrets.GITHUB_TOKEN}}
+          workflow: build.yml
+          name: libusbmuxd-latest_${{env.target_triplet}}
+          repo: libimobiledevice/libusbmuxd
+      - name: fetch libimobiledevice-glue
+        uses: dawidd6/action-download-artifact@v2
+        with:
+          github_token: ${{secrets.GITHUB_TOKEN}}
+          workflow: build.yml
+          name: libimobiledevice-glue-latest_${{env.target_triplet}}
+          repo: libimobiledevice/libimobiledevice-glue
+      - name: install external dependencies
+        run: |
+            mkdir extract
+            for I in *.tar; do
+              tar -C extract -xvf $I
+            done
+            sudo cp -r extract/* /
+            sudo ldconfig
+      - uses: actions/checkout@v3
+        with:
+          # Repository name with owner. For example, actions/checkout
+          # Default: ${{ github.repository }}
+          repository: 'libimobiledevice/libimobiledevice'
+      - name: autogen
+        run: ./autogen.sh PKG_CONFIG_PATH=/usr/local/lib/pkgconfig LDFLAGS="-Wl,-rpath=/usr/local/lib" --enable-debug
+      - name: make
+        run: make
+      - name: make install
+        run: sudo make install
+
+      #libimobiledevice-glue
+      - name: install dependencies
+        run: |
+            #sudo apt-get install cython
+      - name: prepare environment
+        run: |
+            echo "target_triplet=`gcc -dumpmachine`" >> $GITHUB_ENV
+      - name: fetch libplist
+        uses: dawidd6/action-download-artifact@v2
+        with:
+          github_token: ${{secrets.GITHUB_TOKEN}}
+          workflow: build.yml
+          name: libplist-latest_${{env.target_triplet}}
+          repo: libimobiledevice/libplist
+      - name: install external dependencies
+        run: |
+            mkdir extract
+            for I in *.tar; do
+              tar -C extract -xvf $I
+            done
+            sudo cp -r extract/* /
+            sudo ldconfig
+      - uses: actions/checkout@v3
+        with:
+          # Repository name with owner. For example, actions/checkout
+          # Default: ${{ github.repository }}
+          repository: 'libimobiledevice/libimobiledevice-glue'
+      - name: autogen
+        run: ./autogen.sh PKG_CONFIG_PATH=/usr/local/lib/pkgconfig LDFLAGS="-Wl,-rpath=/usr/local/lib"
+      - name: make
+        run: make
+      - name: make install
+        run: sudo make install
+    
+    # OpenSSL
+      - name: install OpenSSL
+        run: sudo apt install openssl -y
 
      # Cargo Build
       - uses: actions-rs/cargo@v1
