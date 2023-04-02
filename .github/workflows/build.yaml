@@ -17,10 +17,46 @@ jobs:
           toolchain: stable
       # rusty_libimobiledevice
       ## libusbmuxd
-      - name: Install rusty_libimboiledevice dependencies
-        run: sudo apt-get install build-essential pkg-config checkinstall git autoconf automake libtool-bin libplist-dev libimobiledevice-glue-dev usbmuxd
-      - name: Clone libusbmuxd
-        run: git clone https://github.com/libimobiledevice/libusbmuxd.git && cd libusbmuxd && ./autogen.sh && make && sudo make install
+
+      - name: prepare environment
+        run: |
+            echo "target_triplet=`gcc -dumpmachine`" >> $GITHUB_ENV
+      - name: fetch libplist
+        uses: dawidd6/action-download-artifact@v2
+        with:
+          github_token: ${{secrets.GITHUB_TOKEN}}
+          workflow: build.yml
+          name: libplist-latest_${{env.target_triplet}}
+          repo: libimobiledevice/libplist
+      - name: fetch libimobiledevice-glue
+        uses: dawidd6/action-download-artifact@v2
+        with:
+          github_token: ${{secrets.GITHUB_TOKEN}}
+          workflow: build.yml
+          name: libimobiledevice-glue-latest_${{env.target_triplet}}
+          repo: libimobiledevice/libimobiledevice-glue
+      - name: install external dependencies
+        run: |
+            mkdir extract
+            for I in *.tar; do
+              tar -C extract -xvf $I
+            done
+            sudo cp -r extract/* /
+            sudo ldconfig
+      - uses: actions/checkout@v3
+        with:
+          # Repository name with owner. For example, actions/checkout
+          # Default: ${{ github.repository }}
+          repository: 'libimobiledevice/libusbmuxd'
+      - name: autogen
+        run: ./autogen.sh PKG_CONFIG_PATH=/usr/local/lib/pkgconfig LDFLAGS="-Wl,-rpath=/usr/local/lib"
+      - name: make
+        run: make
+      - name: make install
+        run: sudo make install
+
+
+     # Cargo Build
       - uses: actions-rs/cargo@v1
         with:
           command: build
